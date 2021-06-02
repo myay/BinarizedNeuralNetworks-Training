@@ -1,0 +1,4 @@
+To install:
+CUDA toolkit, pytorch, pybind11
+
+python3 setup.py install --user
