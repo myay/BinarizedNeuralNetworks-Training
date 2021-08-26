@@ -14,7 +14,8 @@ sys.path.append("code/python/")
 from Utils import Scale, Clippy
 
 from QuantizedNN import QuantizedLinear, QuantizedConv2d, QuantizedActivation
-import binarizePM1
+
+from BNNmodels import BNN_FASHION_CNN, BNN_FASHION_FC
 
 class Quantization:
     def __init__(self, method):
@@ -22,56 +23,11 @@ class Quantization:
     def applyQuantization(self, input):
         return self.method(input)
 
-binarizepm1 = Quantization(binarizePM1.binarize)
-
-# python3 run_fashion.py --batch-size=256 --epochs=100 --lr=0.001 --step-size=25
-
-class BNN_MNIST(nn.Module):
-    def __init__(self):
-        super(BNN_MNIST, self).__init__()
-        self.htanh = nn.Hardtanh()
-        self.conv1 = QuantizedConv2d(1, 64, kernel_size=3, padding=1, stride=1, quantization=binarizepm1)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.qact1 = QuantizedActivation(quantization=binarizepm1)
-
-        self.conv2 = QuantizedConv2d(64, 64, kernel_size=3, padding=1, stride=1, quantization=binarizepm1)
-        self.bn2 = nn.BatchNorm2d(64)
-        self.qact2 = QuantizedActivation(quantization=binarizepm1)
-
-        self.fc1 = QuantizedLinear(7*7*64, 2048, quantization=binarizepm1)
-        self.bn3 = nn.BatchNorm1d(2048)
-        self.qact3 = QuantizedActivation(quantization=binarizepm1)
-
-        self.fc2 = QuantizedLinear(2048, 10, quantization=binarizepm1)
-        # self.fc2 = nn.Linear(2048, 10)
-        self.scale = Scale()
-
-    def forward(self, x):
-        #print(self)
-        x = self.conv1(x)
-        x = F.max_pool2d(x, 2)
-        #print(x)
-        x = self.bn1(x)
-        x = self.htanh(x)
-        x = self.qact1(x)
-        #print(x)
-        #x = F.relu(x)
-        x = self.conv2(x)
-        x = F.max_pool2d(x, 2)
-        x = self.bn2(x)
-        x = self.htanh(x)
-        x = self.qact2(x)
-        #x = F.relu(x)
-        x = torch.flatten(x, 1)
-        x = self.fc1(x)
-        x = self.bn3(x)
-        x = self.htanh(x)
-        x = self.qact2(x)
-        #x = F.relu(x)
-        x = self.fc2(x)
-        x = self.scale(x)
-        # output = F.log_softmax(x, dim=1)
-        return x
+def binarizePY(input):
+    output = input.clone().detach()
+    output[input > 0] = 1
+    output[input <= 0] = -1
+    return output
 
 def train(args, model, device, train_loader, optimizer, epoch):
     model.train()
@@ -115,10 +71,9 @@ def test(model, device, test_loader):
 def main():
     # Training settings
     parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
-    parser.add_argument('--batch-size', type=int, default=64, metavar='N',
-                        help='input batch size for training (default: 64)')
-    parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
-                        help='input batch size for testing (default: 1000)')
+    parser.add_argument('--model', type=str, default="cnn", help='cnn or fc')
+    parser.add_argument('--batch-size', type=int, default=64, metavar='N', help='input batch size for training (default: 64)')
+    parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N', help='input batch size for testing (default: 1000)')
     parser.add_argument('--epochs', type=int, default=10, metavar='N',
                         help='number of epochs to train (default: 14)')
     parser.add_argument('--lr', type=float, default=1.0, metavar='LR',
@@ -133,10 +88,9 @@ def main():
                         help='quickly check a single pass')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
-    parser.add_argument('--log-interval', type=int, default=10, metavar='N',
-                        help='how many batches to wait before logging training status')
-    parser.add_argument('--save-model', action='store_true', default=False,
-                        help='For Saving the current Model')
+    parser.add_argument('--log-interval', type=int, default=10, metavar='N', help='how many batches to wait before logging training status')
+    parser.add_argument('--save-model', action='store_true', default=False, help='For Saving the current Model')
+    parser.add_argument('--cpu-binarization', type=int, default=None, help='Use CPU binarization (slow). If not specified, GPU binarization will be used (fast). To install packages needed for GPU binarization, please check the readme.')
     args = parser.parse_args()
     use_cuda = not args.no_cuda and torch.cuda.is_available()
 
@@ -163,29 +117,28 @@ def main():
     train_loader = torch.utils.data.DataLoader(dataset1,**train_kwargs)
     test_loader = torch.utils.data.DataLoader(dataset2, **test_kwargs)
 
-    model = BNN_MNIST().to(device)
+    binarizepm1 = None
+    if args.cpu_binarization is not None:
+        print("Using slow binarization")
+        binarizepm1 = Quantization(binarizePY)
+    else:
+        print("Using fast binarization")
+        binarizepm1 = Quantization(binarizePM1.binarize)
+
+    if args.model == "cnn":
+        print("Start training of CNN")
+        model = BNN_FASHION_CNN(binarizepm1).to(device)
+    if args.model == "fc":
+        print("Start training of FCNN")
+        model = BNN_FASHION_FC(binarizepm1).to(device)
+
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
-    # optimizer = Clippy(model.parameters(), lr=args.lr)
 
     scheduler = StepLR(optimizer, step_size=args.step_size, gamma=args.gamma)
 
-    time_elapsed = 0
-    times = []
     for epoch in range(1, args.epochs + 1):
-        torch.cuda.synchronize()
-        since = int(round(time.time()*1000))
-        #
         train(args, model, device, train_loader, optimizer, epoch)
-        #
-        time_elapsed += int(round(time.time()*1000)) - since
-        print('Epoch training time elapsed: {}ms'.format(int(round(time.time()*1000)) - since))
-        # test(model, device, train_loader)
-        since = int(round(time.time()*1000))
-        #
         test(model, device, test_loader)
-        #
-        time_elapsed += int(round(time.time()*1000)) - since
-        print('Test time elapsed: {}ms'.format(int(round(time.time()*1000)) - since))
         scheduler.step()
 
     if args.save_model:
