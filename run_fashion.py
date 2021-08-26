@@ -17,6 +17,8 @@ from QuantizedNN import QuantizedLinear, QuantizedConv2d, QuantizedActivation
 
 from BNNmodels import BNN_FASHION_CNN, BNN_FASHION_FC
 
+import binarizePM1
+
 class Quantization:
     def __init__(self, method):
         self.method = method
