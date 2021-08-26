@@ -6,7 +6,7 @@ First, install pytorch.
 
 If no GPU is available, just run
 
-```python3 run_fashion_cpu.py --model=cnn --batch-size=256 --epochs=100 --lr=0.001 --step-size=25 --no-cuda --cpu-binarization=1```.
+```python3 run_fashion.py --model=cnn --batch-size=256 --epochs=100 --lr=0.001 --step-size=25 --no-cuda --cpu-binarization=1```.
 
 
 ## CUDA-based Training and Binarization
