@@ -24,3 +24,5 @@ After successful installation, run the GPU-based training with
 A small convolutional neural network (CNN) is used by default. To try the fully connected case, use ```--model=fc``` instead of ```--model=cnn``` in the arguments.
 
 The code is based on the MNIST example in https://github.com/pytorch/examples/tree/master/mnist.
+
+Please contact me if you have any questions: mikail.yayla@tu-dortmund.de.
